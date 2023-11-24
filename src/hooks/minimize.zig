@@ -12,16 +12,16 @@ fn minimize_hook(_: win32.HWINEVENTHOOK, _: win32.WinEvent, _: ?win.HWND, _: win
     for (windows.list.items) |w| {
         if (!w.minimized()) n += 1;
     }
-    const ratio: i32 = @divTrunc(windows.monitor.right, n);
+    const ratio = @divTrunc(windows.desktop.right, n);
 
     var i: i32 = 0;
     for (windows.list.items) |w| if (!w.minimized()) {
         win32.window.Attribute.set(w.handle, .{ .CornerPreference = win32.window.CornerPreference.Round });
         win32.window.rect.set(w.handle, .{
             .left = ratio * i + i,
-            .top = windows.monitor.top,
+            .top = windows.desktop.top,
             .right = ratio,
-            .bottom = windows.monitor.bottom,
+            .bottom = windows.desktop.bottom,
         }, .{
             .frame_changed = true,
         });

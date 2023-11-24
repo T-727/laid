@@ -10,19 +10,15 @@ pub const Window = struct {
     name: []const u8,
     rect: *win.RECT,
 
-    // TODO get more useful names for apps that run in ApplicationFrameHost.exe
-    const WindowInitError = error{ HandleInvisible, BlacklistedProcess };
     pub fn init(handle: win.HWND, allocator: std.mem.Allocator) !Window {
-        if (!visible(handle)) return WindowInitError.HandleInvisible;
+        if (indexFromHandle(handle) != null) return error.WindowAlreadyAdded;
 
         var rect = try allocator.create(win.RECT);
         rect.* = win32.window.rect.get(handle);
+        errdefer allocator.destroy(rect);
 
         var name = try processName(handle, allocator);
         errdefer allocator.free(name);
-
-        // TODO un-blacklist
-        if (std.mem.eql(u8, name, "explorer.exe")) return WindowInitError.BlacklistedProcess;
 
         return .{
             .handle = handle,
@@ -52,8 +48,38 @@ pub const Window = struct {
         return try allocator.dupe(u8, std.fs.path.basename(buf8[0..try std.unicode.utf16leToUtf8(&buf8, std.mem.span(@as([*:0]u16, &buf16)))]));
     }
 
-    fn visible(handle: win.HWND) bool {
-        return win32.window.IsWindowVisible(handle) and win32.window.Attribute.get(handle, .Cloaked) == win.FALSE;
+    const InvalidWindowError = error{
+        WindowNonExistent,
+        WindowInvisible,
+        WindowUnControlable,
+        WindowCloaked,
+        WindowIsNotRoot,
+        WindowAlreadyAdded,
+        WindowIsTaskbar,
+        NullProcess,
+    };
+
+    pub fn validate(handle: win.HWND) InvalidWindowError!void {
+        if (!win32.window.IsWindow(handle)) return error.WindowNonExistent;
+
+        if (!win32.window.IsWindowVisible(handle)) return error.WindowInvisible;
+
+        if (handle != win32.window.GetAncestor(handle, .RootOwner).?) return error.WindowIsNotRoot;
+
+        if (win32.window.Attribute.get(handle, .Cloaked) != win.FALSE) return error.WindowCloaked;
+
+        const style = win32.window.exStyle(handle);
+        if (style.no_activate or style.tool_window) return error.WindowUnControlable;
+
+        const rect = win32.window.rect.get(handle);
+        const rect_nc = win32.window.rect.getNonClient(handle);
+        // zig fmt: off
+        if (
+            rect_nc.bottom == monitor.bottom
+            and rect_nc.right == monitor.right
+            and rect_nc.top == (monitor.bottom - rect.bottom)
+        ) return InvalidWindowError.WindowIsTaskbar;
+        // zig fmt: on
     }
 
     pub fn minimized(self: *const Window) bool {
@@ -61,11 +87,15 @@ pub const Window = struct {
     }
 };
 
+pub var desktop: win.RECT = undefined;
 pub var monitor: win.RECT = undefined;
 pub fn init() void {
-    monitor = win32.window.monitorSize();
+    const info = win32.window.monitorInfo();
+    desktop = info.rcWork;
+    monitor = info.rcMonitor;
     std.debug.assert(win32.window.EnumWindows(enumerator, 0));
-    std.debug.print("[0] Desktop: {any}\n", .{monitor});
+    std.debug.print("[-] Monitor: {any}\n", .{monitor});
+    std.debug.print("[0] Desktop: {any}\n", .{desktop});
     for (list.items, 1..) |w, i| std.debug.print("[{d}] {s}: {any}\n", .{ i, w.name, w.rect.* });
 }
 
@@ -76,14 +106,14 @@ pub fn deinit() void {
     }
 }
 
+pub fn indexFromHandle(handle: win.HWND) ?usize {
+    for (list.items, 0..) |w, i| if (w.handle == handle) return i;
+    return null;
+}
+
 fn enumerator(handle: win.HWND, _: win.LPARAM) callconv(win.WINAPI) bool {
-    const window = Window.init(handle, _gpa.allocator()) catch |err| {
-        switch (err) {
-            error.HandleInvisible, error.BlacklistedProcess => {},
-            else => std.debug.print("initWindow error: {s}\n", .{@errorName(err)}),
-        }
-        return true;
-    };
-    list.append(window) catch unreachable;
+    Window.validate(handle) catch return true;
+    if (Window.init(handle, _gpa.allocator())) |window| list.append(window) catch unreachable //
+    else |err| std.log.debug("window init error: {s}", .{@errorName(err)});
     return true;
 }

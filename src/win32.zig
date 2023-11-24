@@ -95,17 +95,54 @@ pub const window = struct {
     pub extern "user32" fn IsIconic(hwnd: HWND) callconv(WINAPI) bool;
     pub extern "user32" fn IsWindowVisible(hwnd: HWND) callconv(WINAPI) bool;
     pub extern "user32" fn GetWindowThreadProcessId(hwnd: HWND, lpdwProcessId: *DWORD) callconv(WINAPI) DWORD;
+    pub extern "user32" fn IsWindow(hwnd: HWND) callconv(WINAPI) bool;
+    pub extern "user32" fn GetAncestor(hwnd: HWND, gaFlags: enum(DWORD) { Parent = 1, Root = 2, RootOwner = 3 }) callconv(WINAPI) ?HWND;
 
     const HMONITOR = *opaque {};
     const MONITORINFO = extern struct { cbSize: DWORD, rcMonitor: RECT, rcWork: RECT, dwFlags: enum(DWORD) { Primary = 1, _ } };
     extern "user32" fn GetDesktopWindow() callconv(WINAPI) HWND;
     extern "user32" fn GetMonitorInfoW(hMonitor: HMONITOR, lpmi: *MONITORINFO) callconv(WINAPI) bool;
     extern "user32" fn MonitorFromWindow(hwnd: HWND, dwFlags: enum(DWORD) { Null, Primary, Nearest }) callconv(WINAPI) ?HMONITOR;
-    pub fn monitorSize() RECT {
+    pub fn monitorInfo() MONITORINFO {
         var info = MONITORINFO{ .cbSize = @sizeOf(MONITORINFO), .rcWork = undefined, .dwFlags = undefined, .rcMonitor = undefined };
         assert(GetMonitorInfoW(MonitorFromWindow(GetDesktopWindow(), .Null).?, &info));
-        return info.rcWork;
+        return info;
     }
+
+    extern "user32" fn GetWindowLongPtrW(hwnd: HWND, nIndex: enum(i32) { Style = -16, ExStyle = -20 }) callconv(WINAPI) win.LONG_PTR;
+    pub fn exStyle(handle: HWND) ExStyle {
+        return @bitCast(GetWindowLongPtrW(handle, .ExStyle));
+    }
+    pub fn style(handle: HWND) Style {
+        return @bitCast(GetWindowLongPtrW(handle, .Style));
+    }
+    pub const ExStyle = packed struct(win.LONG_PTR) {
+        _: u7 = 0,
+        tool_window: bool = false,
+        __: u19 = 0,
+        no_activate: bool = false,
+        ___: u36 = 0,
+    };
+    pub const Style = packed struct(win.LONG_PTR) {
+        _: u12,
+        tabstop: bool = false,
+        group: bool = false,
+        sizebox: bool = false,
+        sysmenu: bool = false,
+        hscroll: bool = false,
+        vscroll: bool = false,
+        // caption = border | dlg_frame
+        dlg_frame: bool = false,
+        border: bool = false,
+        maximize: bool = false,
+        clip_children: bool = false,
+        clip_siblings: bool = false,
+        disabled: bool = false,
+        visible: bool = false,
+        minimize: bool = false,
+        child: bool = false,
+        popup: bool = false,
+    };
 
     pub const CornerPreference = enum(DWORD) { Default, DoNotRound, Round, RoundSmall };
     pub const BorderColor = enum(COLORREF) {
@@ -121,7 +158,6 @@ pub const window = struct {
     };
 
     pub const Attribute = union(enum(DWORD)) {
-        pub const CloakReason = enum(DWORD) { App = 1, Shell = 2, Inherited = 4 };
         CornerPreference: CornerPreference = 33,
         BorderColor: BorderColor = 34,
         Cloaked: BOOL = 14,
@@ -172,6 +208,12 @@ pub const window = struct {
         pub fn get(handle: HWND) RECT {
             var val: RECT = undefined;
             assert(GetClientRect(handle, &val));
+            return val;
+        }
+        extern "user32" fn GetWindowRect(hwnd: HWND, lpRect: *RECT) callconv(WINAPI) bool;
+        pub fn getNonClient(handle: HWND) RECT {
+            var val: RECT = undefined;
+            assert(GetWindowRect(handle, &val));
             return val;
         }
     };
