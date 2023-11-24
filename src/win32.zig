@@ -1,4 +1,5 @@
 const std = @import("std");
+const meta = std.meta;
 const assert = std.debug.assert;
 const win = std.os.windows;
 const WINAPI = win.WINAPI;
@@ -13,7 +14,9 @@ const LPARAM = win.LPARAM;
 const WPARAM = win.WPARAM;
 
 pub const HWINEVENTHOOK = *opaque {};
-pub const WINEVENTPROC = *const fn (HWINEVENTHOOK, DWORD, ?HWND, LONG, LONG, DWORD, DWORD) callconv(WINAPI) void;
+pub const ObjectId = enum(LONG) { Window, _ };
+pub const ChildId = enum(LONG) { Self, _ };
+pub const WINEVENTPROC = *const fn (HWINEVENTHOOK, WinEvent, ?HWND, ObjectId, ChildId, DWORD, DWORD) callconv(WINAPI) void;
 
 pub const WinEvent = enum(DWORD) {
     Foreground = 0x0003,
@@ -21,26 +24,30 @@ pub const WinEvent = enum(DWORD) {
     Create = 0x8000,
     Destroy = 0x8001,
 
+    Show = 0x8002,
+    Hide = 0x8003,
+
     Cloak = 0x8017,
-    Uncloak = 0x8018,
+    UnCloak = 0x8018,
 
     Minimize = 0x0016,
     Restore = 0x0017,
 };
 
 pub const WinEventHook = struct {
-    const WINEVENT_OUTOFCONTEXT = 0x0;
-    const WINEVENT_SKIPOWNPROCESS = 0x1;
+    const SetWinEventHookFlags = packed struct(DWORD) {
+        skip_own_thread: bool = false,
+        skip_own_process: bool = false,
+        in_context: bool = false,
+        _: u29 = 0,
+    };
     range: [2]WinEvent,
     callback: WINEVENTPROC,
 
-    extern "user32" fn SetWinEventHook(eventMin: WinEvent, eventMax: WinEvent, hmodWinEventProc: ?win.HMODULE, pfnWinEventProc: WINEVENTPROC, idProcess: DWORD, idThread: DWORD, dwFlags: DWORD) callconv(WINAPI) HWINEVENTHOOK;
+    extern "user32" fn SetWinEventHook(eventMin: WinEvent, eventMax: WinEvent, hmodWinEventProc: ?win.HMODULE, pfnWinEventProc: WINEVENTPROC, idProcess: DWORD, idThread: DWORD, dwFlags: SetWinEventHookFlags) callconv(WINAPI) HWINEVENTHOOK;
     pub fn init(comptime self: *const WinEventHook) HWINEVENTHOOK {
-        const min = self.range[0];
-        const max = self.range[1];
-        if (@intFromEnum(min) > @intFromEnum(max))
-            @compileError("Invalid WinEventHook range: " ++ @tagName(min) ++ " > " ++ @tagName(max));
-        return SetWinEventHook(min, max, null, self.callback, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+        comptime assert(@intFromEnum(self.range[0]) <= @intFromEnum(self.range[1]));
+        return SetWinEventHook(self.range[0], self.range[1], null, self.callback, 0, 0, .{ .skip_own_process = true });
     }
 
     extern "user32" fn UnhookWinEvent(hWinEventHook: HWINEVENTHOOK) callconv(WINAPI) bool;
@@ -49,19 +56,30 @@ pub const WinEventHook = struct {
     }
 };
 
-pub const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-pub extern "kernel32" fn OpenProcess(dwDesiredAccess: DWORD, bInheritHandle: bool, dwProcessId: DWORD) callconv(WINAPI) ?win.HANDLE;
+// remove after zig 0.12
+pub fn HRESULT_CODE(hr: HRESULT) win.Win32Error {
+    return @enumFromInt(hr & 0xFFFF);
+}
 
-pub const WM_QUIT = 0x0012;
-pub extern "user32" fn PostThreadMessageW(idThread: DWORD, Msg: DWORD, wParam: WPARAM, lParam: LPARAM) callconv(WINAPI) bool;
+pub fn assertHResult(result: HRESULT, comptime message: []const u8, args: anytype) void {
+    const code = HRESULT_CODE(result);
+    if (code != .SUCCESS) std.debug.panic(message ++ "\nerror: {s}", .{@tagName(code)} ++ args);
+}
+
+pub extern "ole32" fn CoInitializeEx(pvReserved: ?win.LPVOID, dwCoInit: enum(DWORD) { ApartmentThreaded = 0x2 }) callconv(WINAPI) HRESULT;
+pub extern "ole32" fn CoUninitialize() callconv(WINAPI) void;
+
+pub extern "kernel32" fn OpenProcess(dwDesiredAccess: enum(DWORD) { ProcessQueryLimitedInformation = 0x1000 }, bInheritHandle: bool, dwProcessId: DWORD) callconv(WINAPI) ?win.HANDLE;
+
+pub extern "user32" fn PostThreadMessageW(idThread: DWORD, Msg: enum(DWORD) { Quit = 0x0012 }, wParam: WPARAM, lParam: LPARAM) callconv(WINAPI) bool;
 
 pub const MSG = extern struct { hwnd: ?HWND, message: DWORD, wParam: WPARAM, lParam: LPARAM, time: u32, pt: win.POINT };
 extern "user32" fn GetMessageW(lpMsg: *MSG, hwnd: ?HWND, wMsgFilterMin: DWORD, wMsgFilterMax: DWORD) callconv(WINAPI) BOOL;
 extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(WINAPI) bool;
 extern "user32" fn DispatchMessageW(lpMsg: *const MSG) callconv(WINAPI) win.LRESULT;
 pub fn getMessage(msgPtr: *MSG) bool {
-    return switch (GetMessageW(msgPtr, null, 0, 0)) {
-        win.FALSE => false,
+    switch (GetMessageW(msgPtr, null, 0, 0)) {
+        win.FALSE => return false,
         win.TRUE => {
             assert(TranslateMessage(msgPtr));
             _ = DispatchMessageW(msgPtr);
@@ -69,7 +87,7 @@ pub fn getMessage(msgPtr: *MSG) bool {
         },
         -1 => std.debug.panic("Failed to get next message in the message loop.", .{}),
         else => unreachable,
-    };
+    }
 }
 
 pub const window = struct {
@@ -103,71 +121,58 @@ pub const window = struct {
     };
 
     pub const Attribute = union(enum(DWORD)) {
-        pub const CloakedReason = enum(DWORD) { App = 1, Shell = 2, Inherited = 4 };
-        CornerPreference: *const CornerPreference = 33,
-        BorderColor: *const BorderColor = 34,
-        Cloaked: *BOOL = 14,
+        pub const CloakReason = enum(DWORD) { App = 1, Shell = 2, Inherited = 4 };
+        CornerPreference: CornerPreference = 33,
+        BorderColor: BorderColor = 34,
+        Cloaked: BOOL = 14,
         // zig fmt: off
-        extern "dwmapi" fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: DWORD, pvAttribute: win.LPCVOID, cbAttribute: DWORD) callconv(WINAPI) HRESULT;
+        extern "dwmapi" fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: meta.Tag(Attribute), pvAttribute: win.LPCVOID, cbAttribute: DWORD) callconv(WINAPI) HRESULT;
         pub fn set(handle: HWND, attribute: Attribute) void {
             switch (attribute) {
-                inline else => |ptr| assert(
-                     DwmSetWindowAttribute(
-                        handle,
-                        @intFromEnum(attribute),
-                        ptr,
-                        @sizeOf(@typeInfo(@TypeOf(ptr)).Pointer.child)
-                    ) == win.S_OK
+                inline else => |val| assertHResult(
+                     DwmSetWindowAttribute(handle, attribute, &val, @sizeOf(@TypeOf(val))),
+                    "DwmSetWindowAttribute({s})", .{@tagName(attribute)}
                 )
             }
         }
-        extern "dwmapi" fn DwmGetWindowAttribute(hwnd: HWND, dwAttribute: DWORD, pvAttribute: win.PVOID, cbAttribute: DWORD) callconv(WINAPI) HRESULT;
-        pub fn get(handle: HWND, attribute: Attribute) void {
-            switch (attribute) {
-                inline else => |ptr| assert(
-                    DwmGetWindowAttribute(
-                        handle,
-                        @intFromEnum(attribute),
-                        @constCast(ptr),
-                        @sizeOf(@typeInfo(@TypeOf(ptr)).Pointer.child)
-                    ) == win.S_OK
-                )
-            }
+        extern "dwmapi" fn DwmGetWindowAttribute(hwnd: HWND, dwAttribute: meta.Tag(Attribute), pvAttribute: win.PVOID, cbAttribute: DWORD) callconv(WINAPI) HRESULT;
+        pub fn get(handle: HWND, comptime attribute: meta.Tag(Attribute)) meta.TagPayload(Attribute, attribute) {
+            var val: meta.TagPayload(Attribute, attribute) = undefined;
+            assertHResult(
+                DwmGetWindowAttribute(handle, attribute, &val, @sizeOf(@TypeOf(val))),
+                "DwmGetWindowAttribute({s})", .{@tagName(attribute)}
+            );
+            return val;
         }
         // zig fmt: on
     };
     pub const rect = struct {
-        const Flags = enum(DWORD) {
-            AsyncWindowPos = 0x4000,
-            DeferErase = 0x2000,
-            // DrawFrame = 0x0020,
-            FrameChanged = 0x0020,
-            HideWindow = 0x0080,
-            NoActivate = 0x0010,
-            NoCopyBits = 0x0100,
-            NoMove = 0x0002,
-            // NoOwnerZOrder = 0x0200,
-            NoRedraw = 0x0008,
-            NoReposition = 0x0200,
-            NoSendChanging = 0x0400,
-            NoSize = 0x0001,
-            NoZorder = 0x0004,
-            ShowWindow = 0x0040,
-            _,
-            pub fn init(comptime flags: []const Flags) Flags {
-                comptime var acc: DWORD = 0;
-                inline for (flags) |f| acc &= @intFromEnum(f);
-                const flag = acc;
-                return @enumFromInt(flag);
-            }
+        const SetWindowPosFlags = packed struct(DWORD) {
+            no_size: bool = false,
+            no_move: bool = false,
+            no_zorder: bool = false,
+            no_redraw: bool = false,
+            no_activate: bool = false,
+            frame_changed: bool = false,
+            show_window: bool = false,
+            hide_window: bool = false,
+            no_copy_bits: bool = false,
+            no_reposition: bool = false,
+            no_send_changing: bool = false,
+            _: u2 = 0,
+            defer_erase: bool = false,
+            async_window_pos: bool = false,
+            __: u17 = 0,
         };
-        extern "user32" fn SetWindowPos(hwnd: HWND, hWndInsertAfter: ?HWND, X: i32, Y: i32, cx: i32, cy: i32, uFlags: Flags) callconv(WINAPI) bool;
-        pub fn set(handle: HWND, pos: RECT, comptime flags: []const Flags) void {
-            assert(SetWindowPos(handle, null, pos.left, pos.top, pos.right, pos.bottom, Flags.init(flags)));
+        extern "user32" fn SetWindowPos(hwnd: HWND, hWndInsertAfter: ?HWND, X: i32, Y: i32, cx: i32, cy: i32, uFlags: SetWindowPosFlags) callconv(WINAPI) bool;
+        pub fn set(handle: HWND, pos: RECT, flags: SetWindowPosFlags) void {
+            assert(SetWindowPos(handle, null, pos.left, pos.top, pos.right, pos.bottom, flags));
         }
         extern "user32" fn GetClientRect(hwnd: HWND, lpRect: *RECT) callconv(WINAPI) bool;
-        pub fn get(handle: HWND, ptr: *RECT) void {
-            assert(GetClientRect(handle, ptr));
+        pub fn get(handle: HWND) RECT {
+            var val: RECT = undefined;
+            assert(GetClientRect(handle, &val));
+            return val;
         }
     };
 };

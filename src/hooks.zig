@@ -8,7 +8,7 @@ var handles: [hooks.len]win32.HWINEVENTHOOK = undefined;
 
 pub fn init() void {
     inline for (hooks, 0..) |hook, i| handles[i] = hook.init();
-    hooks[1].callback(handles[1], 0, null, 0, 0, 0, 0);
+    hooks[1].callback(handles[1], .Minimize, null, .Window, .Self, 0, 0);
 }
 
 pub fn deinit() void {

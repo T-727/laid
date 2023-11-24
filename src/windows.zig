@@ -16,7 +16,7 @@ pub const Window = struct {
         if (!visible(handle)) return WindowInitError.HandleInvisible;
 
         var rect = try allocator.create(win.RECT);
-        win32.window.rect.get(handle, rect);
+        rect.* = win32.window.rect.get(handle);
 
         var name = try processName(handle, allocator);
         errdefer allocator.free(name);
@@ -42,7 +42,7 @@ pub const Window = struct {
         var process_id: u32 = undefined;
         _ = win32.window.GetWindowThreadProcessId(handle, &process_id);
 
-        const process = win32.OpenProcess(win32.PROCESS_QUERY_LIMITED_INFORMATION, false, process_id).?;
+        const process = win32.OpenProcess(.ProcessQueryLimitedInformation, false, process_id).?;
         defer win.CloseHandle(process);
 
         var buf16: [win.PATH_MAX_WIDE:0]u16 = undefined;
@@ -53,9 +53,7 @@ pub const Window = struct {
     }
 
     fn visible(handle: win.HWND) bool {
-        var cloaked: win.BOOL = win.FALSE;
-        win32.window.Attribute.get(handle, .{ .Cloaked = &cloaked });
-        return win32.window.IsWindowVisible(handle) and cloaked == win.FALSE;
+        return win32.window.IsWindowVisible(handle) and win32.window.Attribute.get(handle, .Cloaked) == win.FALSE;
     }
 
     pub fn minimized(self: *const Window) bool {
@@ -73,8 +71,8 @@ pub fn init() void {
 
 pub fn deinit() void {
     for (list.items) |w| {
-        win32.window.Attribute.set(w.handle, .{ .BorderColor = &win32.window.BorderColor.Default });
-        win32.window.Attribute.set(w.handle, .{ .CornerPreference = &win32.window.CornerPreference.Default });
+        win32.window.Attribute.set(w.handle, .{ .BorderColor = win32.window.BorderColor.Default });
+        win32.window.Attribute.set(w.handle, .{ .CornerPreference = win32.window.CornerPreference.Default });
     }
 }
 

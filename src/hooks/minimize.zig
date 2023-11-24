@@ -7,7 +7,7 @@ pub const hook = win32.WinEventHook{
     .callback = minimize_hook,
 };
 
-fn minimize_hook(_: win32.HWINEVENTHOOK, _: u32, _: ?win.HWND, _: i32, _: i32, _: u32, _: u32) callconv(win.WINAPI) void {
+fn minimize_hook(_: win32.HWINEVENTHOOK, _: win32.WinEvent, _: ?win.HWND, _: win32.ObjectId, _: win32.ChildId, _: u32, _: u32) callconv(win.WINAPI) void {
     var n: i32 = 0;
     for (windows.list.items) |w| {
         if (!w.minimized()) n += 1;
@@ -16,13 +16,15 @@ fn minimize_hook(_: win32.HWINEVENTHOOK, _: u32, _: ?win.HWND, _: i32, _: i32, _
 
     var i: i32 = 0;
     for (windows.list.items) |w| if (!w.minimized()) {
-        win32.window.Attribute.set(w.handle, .{ .CornerPreference = &win32.window.CornerPreference.Round });
+        win32.window.Attribute.set(w.handle, .{ .CornerPreference = win32.window.CornerPreference.Round });
         win32.window.rect.set(w.handle, .{
             .left = ratio * i + i,
             .top = windows.monitor.top,
             .right = ratio,
             .bottom = windows.monitor.bottom,
-        }, &.{.FrameChanged});
+        }, .{
+            .frame_changed = true,
+        });
         i += 1;
     };
 }

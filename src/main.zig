@@ -7,7 +7,7 @@ const hooks = @import("hooks.zig");
 var thread: u32 = undefined;
 pub fn main() !void {
     thread = win.kernel32.GetCurrentThreadId();
-    _ = win.ole32.CoInitialize(null);
+    win32.assertHResult(win32.CoInitializeEx(null, .ApartmentThreaded), "CoInitializeEx()", .{});
     try win.SetConsoleCtrlHandler(ctrlHandler, true);
     windows.init();
     hooks.init();
@@ -16,7 +16,7 @@ pub fn main() !void {
     while (win32.getMessage(&msg)) {}
     windows.deinit();
     hooks.deinit();
-    _ = win.ole32.CoUninitialize();
+    win32.CoUninitialize();
     std.debug.print("\nEEEE\n", .{});
 }
 
@@ -25,7 +25,7 @@ pub fn exit(code: u8) void {
         \\Exited with error code: {d}\n
         \\Last error type: {s}
     , .{ code, @tagName(win.kernel32.GetLastError()) });
-    std.debug.assert(win32.PostThreadMessageW(thread, win32.WM_QUIT, 0, 0));
+    std.debug.assert(win32.PostThreadMessageW(thread, .Quit, 0, 0));
 }
 
 pub fn ctrlHandler(fdwCtrlType: u32) callconv(win.WINAPI) win.BOOL {
