@@ -32,22 +32,17 @@ pub const WinEvent = enum(DWORD) {
 
     Minimize = 0x0016,
     Restore = 0x0017,
-};
 
-pub const WinEventHook = struct {
     const SetWinEventHookFlags = packed struct(DWORD) {
         skip_own_thread: bool = false,
         skip_own_process: bool = false,
         in_context: bool = false,
         _: u29 = 0,
     };
-    range: [2]WinEvent,
-    callback: WINEVENTPROC,
-
     extern "user32" fn SetWinEventHook(eventMin: WinEvent, eventMax: WinEvent, hmodWinEventProc: ?win.HMODULE, pfnWinEventProc: WINEVENTPROC, idProcess: DWORD, idThread: DWORD, dwFlags: SetWinEventHookFlags) callconv(WINAPI) HWINEVENTHOOK;
-    pub fn init(comptime self: *const WinEventHook) HWINEVENTHOOK {
-        comptime assert(@intFromEnum(self.range[0]) <= @intFromEnum(self.range[1]));
-        return SetWinEventHook(self.range[0], self.range[1], null, self.callback, 0, 0, .{ .skip_own_process = true });
+    pub fn init(comptime range: struct { WinEvent, WinEvent }, callback: WINEVENTPROC) HWINEVENTHOOK {
+        comptime assert(@intFromEnum(range.@"0") <= @intFromEnum(range.@"1"));
+        return SetWinEventHook(range.@"0", range.@"1", null, callback, 0, 0, .{ .skip_own_process = true });
     }
 
     extern "user32" fn UnhookWinEvent(hWinEventHook: HWINEVENTHOOK) callconv(WINAPI) bool;
