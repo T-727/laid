@@ -200,15 +200,10 @@ pub const window = struct {
             assert(SetWindowPos(handle, null, pos.left, pos.top, pos.right, pos.bottom, flags));
         }
         extern "user32" fn GetClientRect(hwnd: HWND, lpRect: *RECT) callconv(WINAPI) bool;
-        pub fn get(handle: HWND) RECT {
-            var val: RECT = undefined;
-            assert(GetClientRect(handle, &val));
-            return val;
-        }
         extern "user32" fn GetWindowRect(hwnd: HWND, lpRect: *RECT) callconv(WINAPI) bool;
-        pub fn getNonClient(handle: HWND) RECT {
+        pub fn get(handle: HWND, client: bool) RECT {
             var val: RECT = undefined;
-            assert(GetWindowRect(handle, &val));
+            assert(if (client) GetClientRect(handle, &val) else GetWindowRect(handle, &val));
             return val;
         }
     };

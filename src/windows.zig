@@ -14,7 +14,7 @@ pub const Window = struct {
         if (indexFromHandle(handle) != null) return error.WindowAlreadyAdded;
 
         var rect = try allocator.create(win.RECT);
-        rect.* = win32.window.rect.get(handle);
+        rect.* = win32.window.rect.get(handle, true);
         errdefer allocator.destroy(rect);
 
         var name = try processName(handle, allocator);
@@ -71,8 +71,8 @@ pub const Window = struct {
         const style = win32.window.exStyle(handle);
         if (style.no_activate or style.tool_window) return error.WindowUnControlable;
 
-        const rect = win32.window.rect.get(handle);
-        const rect_nc = win32.window.rect.getNonClient(handle);
+        const rect = win32.window.rect.get(handle, true);
+        const rect_nc = win32.window.rect.get(handle, false);
         // zig fmt: off
         if (
             rect_nc.bottom == monitor.bottom
@@ -101,8 +101,8 @@ pub fn init() void {
 
 pub fn deinit() void {
     for (list.items) |w| {
-        win32.window.Attribute.set(w.handle, .{ .BorderColor = win32.window.BorderColor.Default });
-        win32.window.Attribute.set(w.handle, .{ .CornerPreference = win32.window.CornerPreference.Default });
+        win32.window.Attribute.set(w.handle, .{ .BorderColor = .Default });
+        win32.window.Attribute.set(w.handle, .{ .CornerPreference = .Default });
     }
 }
 

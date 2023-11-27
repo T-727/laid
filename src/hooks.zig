@@ -25,7 +25,7 @@ fn handler(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, obj
     if (object != .Window or child != .Self) return;
     switch (event) {
         .Foreground => {
-            if (index) |last| win32.window.Attribute.set(windows.list.items[last].handle, .{ .BorderColor = win32.window.BorderColor.Default });
+            if (index) |last| win32.window.Attribute.set(windows.list.items[last].handle, .{ .BorderColor = .Default });
 
             index = for (windows.list.items, 0..) |w, i| {
                 if (w.handle == handle) {
@@ -43,7 +43,7 @@ fn handler(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, obj
 
             var i: i32 = 0;
             for (windows.list.items) |w| if (!w.minimized()) {
-                win32.window.Attribute.set(w.handle, .{ .CornerPreference = win32.window.CornerPreference.Round });
+                win32.window.Attribute.set(w.handle, .{ .CornerPreference = .Round });
                 win32.window.rect.set(w.handle, .{
                     .left = ratio * i + i,
                     .top = windows.desktop.top,
