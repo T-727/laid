@@ -2,39 +2,42 @@ const std = @import("std");
 const win = std.os.windows;
 const win32 = @import("win32.zig");
 
-pub var list = std.ArrayList(Window).init(_gpa.allocator());
+pub var list = std.ArrayList(*Window).init(allocator);
 var _gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = _gpa.allocator();
 
 pub const Window = struct {
     handle: win.HWND,
     name: []const u8,
     rect: *win.RECT,
 
-    pub fn init(handle: win.HWND, allocator: std.mem.Allocator) !Window {
+    pub fn init(handle: win.HWND) !*Window {
         if (indexFromHandle(handle) != null) return error.WindowAlreadyAdded;
 
         var rect = try allocator.create(win.RECT);
         rect.* = win32.window.rect.get(handle, true);
         errdefer allocator.destroy(rect);
 
-        var name = try processName(handle, allocator);
+        const name = try processName(handle);
         errdefer allocator.free(name);
 
-        return .{
+        const ptr = allocator.create(Window) catch unreachable;
+        ptr.* = .{
             .handle = handle,
             .name = name,
             .rect = rect,
         };
+        return ptr;
     }
 
-    pub fn deinit(self: *Window, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Window) void {
         allocator.free(self.name);
         allocator.destroy(self.rect);
         allocator.destroy(self);
         self.* = undefined;
     }
 
-    fn processName(handle: win.HWND, allocator: std.mem.Allocator) ![]const u8 {
+    fn processName(handle: win.HWND) ![]const u8 {
         var process_id: u32 = undefined;
         _ = win32.window.GetWindowThreadProcessId(handle, &process_id);
 
@@ -113,7 +116,7 @@ pub fn indexFromHandle(handle: win.HWND) ?usize {
 
 fn enumerator(handle: win.HWND, _: win.LPARAM) callconv(win.WINAPI) bool {
     Window.validate(handle) catch return true;
-    if (Window.init(handle, _gpa.allocator())) |window| list.append(window) catch unreachable //
+    if (Window.init(handle)) |window| list.append(window) catch unreachable //
     else |err| std.log.debug("window init error: {s}", .{@errorName(err)});
     return true;
 }
