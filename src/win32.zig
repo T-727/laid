@@ -122,7 +122,7 @@ pub const window = struct {
         ___: u36 = 0,
     };
     pub const Style = packed struct(win.LONG_PTR) {
-        _: u12,
+        _: u16 = 0,
         tabstop: bool = false,
         group: bool = false,
         sizebox: bool = false,
@@ -140,6 +140,7 @@ pub const window = struct {
         minimize: bool = false,
         child: bool = false,
         popup: bool = false,
+        __: u32 = 0,
     };
 
     pub const CornerPreference = enum(DWORD) { Default, DoNotRound, Round, RoundSmall };

@@ -11,14 +11,15 @@ pub const Window = struct {
     name: []const u8,
     rect: *win.RECT,
 
-    pub fn init(handle: win.HWND) !*Window {
+    pub fn init(handle: win.HWND) InvalidWindowError!*Window {
         if (indexFromHandle(handle) != null) return error.WindowAlreadyAdded;
 
-        var rect = try allocator.create(win.RECT);
+        const rect = allocator.create(win.RECT) catch unreachable;
         rect.* = win32.window.rect.get(handle, true);
         errdefer allocator.destroy(rect);
 
-        const name = try processName(handle);
+        const name = processName(handle) catch unreachable;
+        for (system_apps.items) |sysapp| if (std.mem.eql(u8, sysapp, name)) return error.IsSystemApp;
         errdefer allocator.free(name);
 
         const ptr = allocator.create(Window) catch unreachable;
@@ -59,6 +60,8 @@ pub const Window = struct {
         WindowIsNotRoot,
         WindowAlreadyAdded,
         WindowIsTaskbar,
+        WindowIsChild,
+        IsSystemApp,
         NullProcess,
     };
 
@@ -67,12 +70,15 @@ pub const Window = struct {
 
         if (!win32.window.IsWindowVisible(handle)) return error.WindowInvisible;
 
+        const style = win32.window.style(handle);
+        if (style.child) return error.WindowIsChild;
+
         if (handle != win32.window.GetAncestor(handle, .RootOwner).?) return error.WindowIsNotRoot;
 
         if (win32.window.Attribute.get(handle, .Cloaked) != win.FALSE) return error.WindowCloaked;
 
-        const style = win32.window.exStyle(handle);
-        if (style.no_activate or style.tool_window) return error.WindowUnControlable;
+        const exstyle = win32.window.exStyle(handle);
+        if (exstyle.no_activate or exstyle.tool_window) return error.WindowUnControlable;
 
         const rect = win32.window.rect.get(handle, true);
         const rect_nc = win32.window.rect.get(handle, false);
@@ -81,7 +87,7 @@ pub const Window = struct {
             rect_nc.bottom == monitor.bottom
             and rect_nc.right == monitor.right
             and rect_nc.top == (monitor.bottom - rect.bottom)
-        ) return InvalidWindowError.WindowIsTaskbar;
+        ) return error.WindowIsTaskbar;
         // zig fmt: on
     }
 
@@ -92,7 +98,8 @@ pub const Window = struct {
 
 pub var desktop: win.RECT = undefined;
 pub var monitor: win.RECT = undefined;
-pub fn init() void {
+pub fn init() !void {
+    try initSystemApps();
     const info = win32.window.monitorInfo();
     desktop = info.rcWork;
     monitor = info.rcMonitor;
@@ -119,4 +126,33 @@ fn enumerator(handle: win.HWND, _: win.LPARAM) callconv(win.WINAPI) bool {
     if (Window.init(handle)) |window| list.append(window) catch unreachable //
     else |err| std.log.debug("window init error: {s}", .{@errorName(err)});
     return true;
+}
+
+var _sys = std.heap.ArenaAllocator.init(allocator);
+// maybe BoundedArray instead?
+var system_apps = std.ArrayList([]const u8).init(_sys.allocator());
+
+/// `$SystemRoot/SystemApps/*/*.exe`
+fn initSystemApps() !void {
+    // would SHGetKnownFolderPath() be better here?
+    const sysroot = try std.process.getEnvVarOwned(allocator, "SystemRoot");
+    defer allocator.free(sysroot);
+
+    const sysapps_path = try std.fs.path.join(allocator, &.{ sysroot, "SystemApps" });
+    defer allocator.free(sysapps_path);
+
+    // TODO 0.12 https://github.com/ziglang/zig/pull/18076
+    var sysapps_dir = try std.fs.openIterableDirAbsolute(sysapps_path, .{});
+    defer sysapps_dir.close();
+
+    var sysapps_iter = sysapps_dir.iterate();
+    while (try sysapps_iter.next()) |dir| {
+        var appdir = try sysapps_dir.dir.openIterableDir(dir.name, .{});
+        defer appdir.close();
+        var appiter = appdir.iterate();
+        while (try appiter.next()) |item|
+            if (item.kind == .file and std.mem.endsWith(u8, item.name, ".exe")) {
+                try system_apps.append(try _sys.allocator().dupe(u8, item.name));
+            };
+    }
 }

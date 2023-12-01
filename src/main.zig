@@ -9,7 +9,7 @@ pub fn main() !void {
     thread = win.kernel32.GetCurrentThreadId();
     win32.assertHResult(win32.CoInitializeEx(null, .ApartmentThreaded), "CoInitializeEx()", .{});
     try win.SetConsoleCtrlHandler(ctrlHandler, true);
-    windows.init();
+    try windows.init();
     hooks.init();
 
     var msg: win32.MSG = undefined;
