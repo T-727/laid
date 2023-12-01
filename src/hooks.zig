@@ -11,9 +11,10 @@ const ranges = .{
 };
 var handles: [ranges.len]win32.HWINEVENTHOOK = undefined;
 pub fn init() void {
-    inline for (ranges, 0..) |range, i| handles[i] = win32.WinEvent.init(range, handler);
-    if (win32.window.GetForegroundWindow()) |w| //
-        handler(undefined, .Foreground, w, .Window, .Self, undefined, undefined);
+    inline for (ranges, 0..) |range, i| handles[i] = win32.WinEvent.init(range, hook);
+}
+fn hook(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, object: win32.ObjectId, child: win32.ChildId, _: u32, _: u32) callconv(win.WINAPI) void {
+    if (object == .Window and child == .Self and handle != null) processEvent(event, handle.?);
 }
 
 pub fn deinit() void {
@@ -25,8 +26,7 @@ const color = win32.window.BorderColor.Custom("FF0000".*) catch unreachable;
 
 var index: ?usize = null;
 
-fn handler(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, object: win32.ObjectId, child: win32.ChildId, _: u32, _: u32) callconv(win.WINAPI) void {
-    if (object != .Window or child != .Self or handle == null) return;
+pub fn processEvent(event: win32.WinEvent, handle: win.HWND) void {
     switch (event) {
         .Foreground => {
             if (index) |last| win32.window.Attribute.set(windows.list.items[last].handle, .{ .BorderColor = .Default });
@@ -34,18 +34,18 @@ fn handler(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, obj
             if (index != null and index.? < windows.list.items.len) //
                 win32.window.Attribute.set(windows.list.items[index.?].handle, .{ .BorderColor = .Default });
 
-            index = windows.indexFromHandle(handle.?);
-            if (index != null) win32.window.Attribute.set(handle.?, .{ .BorderColor = color });
+            index = windows.indexFromHandle(handle);
+            if (index != null) win32.window.Attribute.set(handle, .{ .BorderColor = color });
         },
 
-        .Show, .UnCloak => if (windows.Window.init(handle.?)) |w| {
+        .Show, .UnCloak => if (windows.Window.init(handle)) |w| {
             windows.list.append(w) catch unreachable;
             win32.window.Attribute.set(w.handle, .{ .CornerPreference = .Round });
             std.log.debug("[{s}] {s}: {any}", .{ @tagName(event), w.name, w.rect.* });
-            handler(undefined, .Foreground, handle, object, child, undefined, undefined);
+            processEvent(.Foreground, handle);
         } else |_| return,
 
-        .Hide, .Cloak => if (windows.indexFromHandle(handle.?)) |i| {
+        .Hide, .Cloak => if (windows.indexFromHandle(handle)) |i| {
             const w = windows.list.orderedRemove(i);
             std.log.debug("[{s}] {s}: {any}", .{ @tagName(event), w.name, w.rect.* });
             w.deinit();
@@ -65,7 +65,6 @@ fn handler(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, obj
 
     var i: i32 = 0;
     for (windows.list.items) |w| if (!w.minimized()) {
-        win32.window.Attribute.set(w.handle, .{ .CornerPreference = .Round });
         win32.window.rect.set(w.handle, .{
             .left = ratio * i + i,
             .top = windows.desktop.top,
