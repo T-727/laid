@@ -1,7 +1,7 @@
 const std = @import("std");
 const win = std.os.windows;
 const win32 = @import("win32.zig");
-const hooks = @import("hooks.zig");
+const events = @import("events.zig");
 
 pub var list = std.ArrayList(*Window).init(allocator);
 var _gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -109,7 +109,7 @@ pub fn init() !void {
     std.debug.print("[-] Monitor: {any}\n", .{monitor});
     std.debug.print("[0] Desktop: {any}\n", .{desktop});
     for (list.items, 1..) |w, i| std.debug.print("[{d}] {s}: {any}\n", .{ i, w.name, w.rect.* });
-    if (win32.window.GetForegroundWindow()) |w| hooks.processEvent(.Foreground, w);
+    if (win32.window.GetForegroundWindow()) |w| events.process(.Foreground, w);
 }
 
 pub fn deinit() void {
@@ -125,7 +125,7 @@ pub fn indexFromHandle(handle: win.HWND) ?usize {
 }
 
 fn enumerator(handle: win.HWND, _: win.LPARAM) callconv(win.WINAPI) bool {
-    hooks.processEvent(.Show, handle);
+    events.process(.Show, handle);
     return true;
 }
 

@@ -2,7 +2,7 @@ const std = @import("std");
 const win = std.os.windows;
 const win32 = @import("win32.zig");
 const windows = @import("windows.zig");
-const hooks = @import("hooks.zig");
+const events = @import("events.zig");
 
 var thread: u32 = undefined;
 pub fn main() !void {
@@ -10,12 +10,12 @@ pub fn main() !void {
     win32.assertHResult(win32.CoInitializeEx(null, .ApartmentThreaded), "CoInitializeEx()", .{});
     try win.SetConsoleCtrlHandler(ctrlHandler, true);
     try windows.init();
-    hooks.init();
+    events.init();
 
     var msg: win32.MSG = undefined;
     while (win32.getMessage(&msg)) {}
     windows.deinit();
-    hooks.deinit();
+    events.deinit();
     win32.CoUninitialize();
     std.debug.print("\nEEEE\n", .{});
 }

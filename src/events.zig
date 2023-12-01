@@ -14,7 +14,7 @@ pub fn init() void {
     inline for (ranges, 0..) |range, i| handles[i] = win32.WinEvent.init(range, hook);
 }
 fn hook(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, object: win32.ObjectId, child: win32.ChildId, _: u32, _: u32) callconv(win.WINAPI) void {
-    if (object == .Window and child == .Self and handle != null) processEvent(event, handle.?);
+    if (object == .Window and child == .Self and handle != null) process(event, handle.?);
 }
 
 pub fn deinit() void {
@@ -26,7 +26,7 @@ const color = win32.window.BorderColor.Custom("FF0000".*) catch unreachable;
 
 var index: ?usize = null;
 
-pub fn processEvent(event: win32.WinEvent, handle: win.HWND) void {
+pub fn process(event: win32.WinEvent, handle: win.HWND) void {
     switch (event) {
         .Foreground => {
             if (index) |last| win32.window.Attribute.set(windows.list.items[last].handle, .{ .BorderColor = .Default });
@@ -42,7 +42,7 @@ pub fn processEvent(event: win32.WinEvent, handle: win.HWND) void {
             windows.list.append(w) catch unreachable;
             win32.window.Attribute.set(w.handle, .{ .CornerPreference = .Round });
             std.log.debug("[{s}] {s}: {any}", .{ @tagName(event), w.name, w.rect.* });
-            processEvent(.Foreground, handle);
+            process(.Foreground, handle);
         } else |_| return,
 
         .Hide, .Cloak => if (windows.indexFromHandle(handle)) |i| {
