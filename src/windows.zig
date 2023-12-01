@@ -13,6 +13,7 @@ pub const Window = struct {
 
     pub fn init(handle: win.HWND) InvalidWindowError!*Window {
         if (indexFromHandle(handle) != null) return error.WindowAlreadyAdded;
+        try validate(handle);
 
         const rect = allocator.create(win.RECT) catch unreachable;
         rect.* = win32.window.rect.get(handle, true);
@@ -65,7 +66,7 @@ pub const Window = struct {
         NullProcess,
     };
 
-    pub fn validate(handle: win.HWND) InvalidWindowError!void {
+    fn validate(handle: win.HWND) InvalidWindowError!void {
         if (!win32.window.IsWindow(handle)) return error.WindowNonExistent;
 
         if (!win32.window.IsWindowVisible(handle)) return error.WindowInvisible;
@@ -122,9 +123,9 @@ pub fn indexFromHandle(handle: win.HWND) ?usize {
 }
 
 fn enumerator(handle: win.HWND, _: win.LPARAM) callconv(win.WINAPI) bool {
-    Window.validate(handle) catch return true;
-    if (Window.init(handle)) |window| list.append(window) catch unreachable //
-    else |err| std.log.debug("window init error: {s}", .{@errorName(err)});
+    const window = Window.init(handle) catch return true;
+    list.append(window) catch unreachable;
+    win32.window.Attribute.set(window.handle, .{ .CornerPreference = .Round });
     return true;
 }
 

@@ -95,6 +95,7 @@ pub const window = struct {
     pub extern "user32" fn GetWindowThreadProcessId(hwnd: HWND, lpdwProcessId: *DWORD) callconv(WINAPI) DWORD;
     pub extern "user32" fn IsWindow(hwnd: HWND) callconv(WINAPI) bool;
     pub extern "user32" fn GetAncestor(hwnd: HWND, gaFlags: enum(DWORD) { Parent = 1, Root = 2, RootOwner = 3 }) callconv(WINAPI) ?HWND;
+    pub extern "user32" fn GetForegroundWindow() callconv(WINAPI) ?HWND;
 
     const HMONITOR = *opaque {};
     const MONITORINFO = extern struct { cbSize: DWORD, rcMonitor: RECT, rcWork: RECT, dwFlags: enum(DWORD) { Primary = 1, _ } };
