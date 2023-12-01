@@ -58,7 +58,10 @@ pub fn HRESULT_CODE(hr: HRESULT) win.Win32Error {
 
 pub fn assertHResult(result: HRESULT, comptime message: []const u8, args: anytype) void {
     const code = HRESULT_CODE(result);
-    if (code != .SUCCESS) std.debug.panic(message ++ "\nerror: {s}", .{@tagName(code)} ++ args);
+    if (code != .SUCCESS) {
+        @setEvalBranchQuota(@typeInfo(win.Win32Error).Enum.fields.len);
+        std.debug.panic(message ++ "\nerror: {s}", args ++ .{std.enums.tagName(win.Win32Error, code) orelse "UNKNOWN"});
+    }
 }
 
 pub extern "ole32" fn CoInitializeEx(pvReserved: ?win.LPVOID, dwCoInit: enum(DWORD) { ApartmentThreaded = 0x2 }) callconv(WINAPI) HRESULT;
