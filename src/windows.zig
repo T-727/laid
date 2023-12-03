@@ -12,17 +12,53 @@ pub const Window = struct {
     name: []const u8,
     rect: *win.RECT,
 
+    const InvalidWindowError = error{
+        WindowNonExistent,
+        WindowInvisible,
+        WindowUnControlable,
+        WindowCloaked,
+        WindowIsNotRoot,
+        WindowAlreadyAdded,
+        WindowIsTaskbar,
+        WindowIsChild,
+        IsSystemApp,
+        NullProcess,
+    };
+
     pub fn init(handle: win.HWND) InvalidWindowError!*Window {
         if (findByHandle(handle)) |_| return error.WindowAlreadyAdded;
-        try validate(handle);
+
+        if (!win32.window.IsWindow(handle)) return error.WindowNonExistent;
+
+        if (!win32.window.IsWindowVisible(handle)) return error.WindowInvisible;
+
+        const style = win32.window.style(handle);
+        if (style.child) return error.WindowIsChild;
+
+        if (handle != win32.window.GetAncestor(handle, .RootOwner).?) return error.WindowIsNotRoot;
+
+        if (win32.window.Attribute.get(handle, .Cloaked) != win.FALSE) return error.WindowCloaked;
+
+        const exstyle = win32.window.exStyle(handle);
+        if (exstyle.no_activate or exstyle.tool_window) return error.WindowUnControlable;
 
         const rect = allocator.create(win.RECT) catch unreachable;
-        rect.* = win32.window.rect.get(handle, true);
         errdefer allocator.destroy(rect);
+        rect.* = win32.window.rect.get(handle, true);
+
+        const rect_nc = win32.window.rect.get(handle, false);
+        // zig fmt: off
+        if (
+            rect_nc.bottom == monitor.bottom
+            and rect_nc.right == monitor.right
+            and rect_nc.top == (monitor.bottom - rect.bottom)
+        ) return error.WindowIsTaskbar;
+        // zig fmt: on
 
         const name = processName(handle) catch unreachable;
-        for (system_apps.items) |sysapp| if (std.mem.eql(u8, sysapp, name)) return error.IsSystemApp;
         errdefer allocator.free(name);
+
+        for (system_apps.items) |sysapp| if (std.mem.eql(u8, sysapp, name)) return error.IsSystemApp;
 
         const ptr = allocator.create(Window) catch unreachable;
         ptr.* = .{
@@ -52,45 +88,6 @@ pub const Window = struct {
 
         var buf8: [std.fs.MAX_PATH_BYTES:0]u8 = undefined;
         return try allocator.dupe(u8, std.fs.path.basename(buf8[0..try std.unicode.utf16leToUtf8(&buf8, std.mem.span(@as([*:0]u16, &buf16)))]));
-    }
-
-    const InvalidWindowError = error{
-        WindowNonExistent,
-        WindowInvisible,
-        WindowUnControlable,
-        WindowCloaked,
-        WindowIsNotRoot,
-        WindowAlreadyAdded,
-        WindowIsTaskbar,
-        WindowIsChild,
-        IsSystemApp,
-        NullProcess,
-    };
-
-    fn validate(handle: win.HWND) InvalidWindowError!void {
-        if (!win32.window.IsWindow(handle)) return error.WindowNonExistent;
-
-        if (!win32.window.IsWindowVisible(handle)) return error.WindowInvisible;
-
-        const style = win32.window.style(handle);
-        if (style.child) return error.WindowIsChild;
-
-        if (handle != win32.window.GetAncestor(handle, .RootOwner).?) return error.WindowIsNotRoot;
-
-        if (win32.window.Attribute.get(handle, .Cloaked) != win.FALSE) return error.WindowCloaked;
-
-        const exstyle = win32.window.exStyle(handle);
-        if (exstyle.no_activate or exstyle.tool_window) return error.WindowUnControlable;
-
-        const rect = win32.window.rect.get(handle, true);
-        const rect_nc = win32.window.rect.get(handle, false);
-        // zig fmt: off
-        if (
-            rect_nc.bottom == monitor.bottom
-            and rect_nc.right == monitor.right
-            and rect_nc.top == (monitor.bottom - rect.bottom)
-        ) return error.WindowIsTaskbar;
-        // zig fmt: on
     }
 
     pub fn minimized(self: *const Window) bool {
