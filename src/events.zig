@@ -29,24 +29,24 @@ var foreground_window: ?*windows.Window = null;
 pub fn process(event: win32.WinEvent, handle: win.HWND) void {
     switch (event) {
         .Foreground => {
-            if (foreground_window) |last| for (windows.list.items) |w| //
-                if (w == last) break win32.window.Attribute.set(last.handle, .{ .BorderColor = .Default });
+            if (foreground_window) |last| if (windows.findByHandle(last.handle)) |_| //
+                win32.window.Attribute.set(last.handle, .{ .BorderColor = .Default });
 
-            foreground_window = if (windows.indexFromHandle(handle)) |i| windows.list.items[i] else null;
+            foreground_window = windows.findByHandle(handle);
             if (foreground_window) |current| win32.window.Attribute.set(current.handle, .{ .BorderColor = color });
         },
 
-        .Show, .UnCloak => if (windows.Window.init(handle)) |w| {
-            windows.list.append(w) catch unreachable;
-            win32.window.Attribute.set(w.handle, .{ .CornerPreference = .Round });
-            std.log.debug("[{s}] {s}: {any}", .{ @tagName(event), w.name, w.rect.* });
+        .Show, .UnCloak => if (windows.Window.init(handle)) |new| {
+            windows.list.append(new) catch unreachable;
+            win32.window.Attribute.set(new.handle, .{ .CornerPreference = .Round });
+            std.log.debug("[{s}] {s}: {any}", .{ @tagName(event), new.name, new.rect.* });
             process(.Foreground, handle);
         } else |_| return,
 
-        .Hide, .Cloak => if (windows.indexFromHandle(handle)) |i| {
-            const w = windows.list.orderedRemove(i);
-            std.log.debug("[{s}] {s}: {any}", .{ @tagName(event), w.name, w.rect.* });
-            w.deinit();
+        .Hide, .Cloak => if (windows.findByHandle(handle)) |w| {
+            const removed = windows.list.orderedRemove(std.mem.indexOfScalar(*windows.Window, windows.list.items, w).?);
+            std.log.debug("[{s}] {s}: {any}", .{ @tagName(event), removed.name, removed.rect.* });
+            removed.deinit();
         } else return,
 
         // trigger window arrangement

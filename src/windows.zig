@@ -13,7 +13,7 @@ pub const Window = struct {
     rect: *win.RECT,
 
     pub fn init(handle: win.HWND) InvalidWindowError!*Window {
-        if (indexFromHandle(handle) != null) return error.WindowAlreadyAdded;
+        if (findByHandle(handle)) |_| return error.WindowAlreadyAdded;
         try validate(handle);
 
         const rect = allocator.create(win.RECT) catch unreachable;
@@ -119,8 +119,8 @@ pub fn deinit() void {
     }
 }
 
-pub fn indexFromHandle(handle: win.HWND) ?usize {
-    for (list.items, 0..) |w, i| if (w.handle == handle) return i;
+pub fn findByHandle(handle: win.HWND) ?*Window {
+    for (list.items) |w| if (w.handle == handle) return w;
     return null;
 }
 
