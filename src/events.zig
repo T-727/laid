@@ -24,18 +24,16 @@ pub fn deinit() void {
 // temp
 const color = win32.window.BorderColor.Custom("FF0000".*) catch unreachable;
 
-var index: ?usize = null;
+var foreground_window: ?*windows.Window = null;
 
 pub fn process(event: win32.WinEvent, handle: win.HWND) void {
     switch (event) {
         .Foreground => {
-            if (index) |last| win32.window.Attribute.set(windows.list.items[last].handle, .{ .BorderColor = .Default });
+            if (foreground_window) |last| for (windows.list.items) |w| //
+                if (w == last) break win32.window.Attribute.set(last.handle, .{ .BorderColor = .Default });
 
-            if (index != null and index.? < windows.list.items.len) //
-                win32.window.Attribute.set(windows.list.items[index.?].handle, .{ .BorderColor = .Default });
-
-            index = windows.indexFromHandle(handle);
-            if (index != null) win32.window.Attribute.set(handle, .{ .BorderColor = color });
+            foreground_window = if (windows.indexFromHandle(handle)) |i| windows.list.items[i] else null;
+            if (foreground_window) |current| win32.window.Attribute.set(current.handle, .{ .BorderColor = color });
         },
 
         .Show, .UnCloak => if (windows.Window.init(handle)) |w| {
