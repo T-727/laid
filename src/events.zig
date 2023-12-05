@@ -11,7 +11,7 @@ const ranges = .{
 };
 var handles: [ranges.len]win32.HWINEVENTHOOK = undefined;
 pub fn init() void {
-    inline for (ranges, 0..) |range, i| handles[i] = win32.WinEvent.init(range, hook);
+    inline for (ranges, 0..) |range, i| handles[i] = win32.WinEvent.init(range, hook, .{ .skip_own_process = true });
 }
 fn hook(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, object: win32.ObjectId, child: win32.ChildId, _: u32, _: u32) callconv(win.WINAPI) void {
     if (object == .Window and child == .Self and handle != null) process(event, handle.?);

@@ -28,18 +28,18 @@ pub const Window = struct {
     pub fn init(handle: win.HWND) InvalidWindowError!*Window {
         if (findByHandle(handle)) |_| return error.WindowAlreadyAdded;
 
-        if (!win32.window.IsWindow(handle)) return error.WindowNonExistent;
+        if (!win32.window.isWindow(handle)) return error.WindowNonExistent;
 
-        if (!win32.window.IsWindowVisible(handle)) return error.WindowInvisible;
+        if (!win32.window.visible(handle)) return error.WindowInvisible;
 
-        const style = win32.window.style(handle);
+        const style = win32.window.longPtr(handle, .Style);
         if (style.child) return error.WindowIsChild;
 
-        if (handle != win32.window.GetAncestor(handle, .RootOwner).?) return error.WindowIsNotRoot;
+        if (handle != win32.window.ancestor(handle, .RootOwner).?) return error.WindowIsNotRoot;
 
         if (win32.window.Attribute.get(handle, .Cloaked) != win.FALSE) return error.WindowCloaked;
 
-        const exstyle = win32.window.exStyle(handle);
+        const exstyle = win32.window.longPtr(handle, .ExStyle);
         if (exstyle.no_activate or exstyle.tool_window) return error.WindowUnControlable;
 
         const rect = allocator.create(win.RECT) catch unreachable;
@@ -77,21 +77,19 @@ pub const Window = struct {
     }
 
     fn processName(handle: win.HWND) ![]const u8 {
-        var process_id: u32 = undefined;
-        _ = win32.window.GetWindowThreadProcessId(handle, &process_id);
-
-        const process = win32.OpenProcess(.ProcessQueryLimitedInformation, false, process_id).?;
+        const process = win32.process.open(win32.window.processId(handle), .ProcessQueryLimitedInformation).?;
         defer win.CloseHandle(process);
 
         var buf16: [win.PATH_MAX_WIDE:0]u16 = undefined;
-        _ = win.kernel32.K32GetProcessImageFileNameW(process, &buf16, buf16.len);
+        const path16 = buf16[0..win32.process.path(process, &buf16)];
 
         var buf8: [std.fs.MAX_PATH_BYTES:0]u8 = undefined;
-        return try allocator.dupe(u8, std.fs.path.basename(buf8[0..try std.unicode.utf16leToUtf8(&buf8, std.mem.span(@as([*:0]u16, &buf16)))]));
+        const path8 = buf8[0..try std.unicode.utf16leToUtf8(&buf8, path16)];
+        return try allocator.dupe(u8, std.fs.path.basename(path8));
     }
 
     pub fn minimized(self: *const Window) bool {
-        return win32.window.IsIconic(self.handle);
+        return win32.window.minimized(self.handle);
     }
 };
 
@@ -99,14 +97,14 @@ pub var desktop: win.RECT = undefined;
 pub var monitor: win.RECT = undefined;
 pub fn init() !void {
     try initSystemApps();
-    const info = win32.window.monitorInfo();
+    const info = win32.window.monitorInfo(win32.window.monitor(win32.window.desktop(), .Null).?);
     desktop = info.rcWork;
     monitor = info.rcMonitor;
-    std.debug.assert(win32.window.EnumWindows(enumerator, 0));
+    std.debug.assert(win32.window.enumerate(enumerator));
     std.debug.print("[-] Monitor: {any}\n", .{monitor});
     std.debug.print("[0] Desktop: {any}\n", .{desktop});
     for (list.items, 1..) |w, i| std.debug.print("[{d}] {s}: {any}\n", .{ i, w.name, w.rect.* });
-    if (win32.window.GetForegroundWindow()) |w| events.process(.Foreground, w);
+    if (win32.window.foreground()) |w| events.process(.Foreground, w);
 }
 
 pub fn deinit() void {
