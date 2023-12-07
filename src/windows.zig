@@ -72,7 +72,6 @@ pub const Window = struct {
         allocator.free(self.name);
         allocator.destroy(self.rect);
         allocator.destroy(self);
-        self.* = undefined;
     }
 
     fn processName(handle: win.HWND, alloc: std.mem.Allocator) ![]const u8 {
@@ -116,7 +115,12 @@ pub fn deinit() void {
             "Failed to reset corner preference for window. Name: {s}, Error code: {s}",
             .{ w.name, @errorName(err) },
         );
+        w.deinit();
     }
+    list.deinit();
+    system_apps.deinit();
+    _sys.deinit();
+    _ = _gpa.deinit();
 }
 
 pub fn findByHandle(handle: win.HWND) ?*Window {
