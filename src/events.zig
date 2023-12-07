@@ -10,15 +10,19 @@ const ranges = .{
     .{ .Cloak, .UnCloak },
 };
 var handles: [ranges.len]win32.HWINEVENTHOOK = undefined;
-pub fn init() void {
-    inline for (ranges, 0..) |range, i| handles[i] = win32.WinEvent.init(range, hook, .{ .skip_own_process = true });
+pub fn init() !void {
+    inline for (ranges, 0..) |range, i| handles[i] = try win32.WinEvent.init(range, hook, .{ .skip_own_process = true });
 }
 fn hook(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, object: win32.ObjectId, child: win32.ChildId, _: u32, _: u32) callconv(win.WINAPI) void {
     if (object == .Window and child == .Self and handle != null) process(event, handle.?);
 }
 
 pub fn deinit() void {
-    for (handles) |handle| win32.WinEvent.deinit(handle);
+    inline for (handles, 0..) |handle, i| win32.WinEvent.deinit(handle) catch |err| {
+        std.log.warn("Failed to Unhook event handler for WinEvent range: {{ .{s}, .{s} }}. Error code: {s}", .{
+            @tagName(ranges[i][0]), @tagName(ranges[i][1]), @errorName(err),
+        });
+    };
 }
 
 // temp
@@ -29,16 +33,27 @@ var foreground_window: ?*windows.Window = null;
 pub fn process(event: win32.WinEvent, handle: win.HWND) void {
     switch (event) {
         .Foreground => {
-            if (foreground_window) |last| if (windows.findByHandle(last.handle)) |_| //
-                win32.window.Attribute.set(last.handle, .{ .BorderColor = .Default });
-
+            if (foreground_window) |last| if (windows.findByHandle(last.handle)) |_| {
+                win32.window.Attribute.set(last.handle, .{ .BorderColor = .Default }) catch |err| std.log.warn(
+                    "Failed to reset foreground border color for previous window. Name: {s}, Error code: {s}",
+                    .{ last.name, @errorName(err) },
+                );
+            };
             foreground_window = windows.findByHandle(handle);
-            if (foreground_window) |current| win32.window.Attribute.set(current.handle, .{ .BorderColor = color });
+            if (foreground_window) |current| {
+                win32.window.Attribute.set(current.handle, .{ .BorderColor = color }) catch |err| std.log.warn(
+                    "Failed to set foreground border color for current window. Name: {s}, Error code: {s}",
+                    .{ current.name, @errorName(err) },
+                );
+            }
         },
 
         .Show, .UnCloak => if (windows.Window.init(handle)) |new| {
             windows.list.append(new) catch unreachable;
-            win32.window.Attribute.set(new.handle, .{ .CornerPreference = .Round });
+            win32.window.Attribute.set(new.handle, .{ .CornerPreference = .Round }) catch |err| std.log.warn(
+                "Failed to set corner preference for new window. Name: {s}, Error code: {s}",
+                .{ new.name, @errorName(err) },
+            );
             std.log.debug("[{s}] {s}: {any}", .{ @tagName(event), new.name, new.rect.* });
             process(.Foreground, handle);
         } else |_| return,
@@ -73,7 +88,7 @@ pub fn process(event: win32.WinEvent, handle: win.HWND) void {
             .no_activate = true,
             .no_copy_bits = true,
             .async_window_pos = true,
-        });
+        }) catch unreachable;
         i += 1;
     };
 }

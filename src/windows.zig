@@ -12,6 +12,7 @@ pub const Window = struct {
     name: []const u8,
     rect: *win.RECT,
 
+    const UNKNOWN_PROCESS_NAME = "UnknownProcess";
     const InvalidWindowError = error{
         WindowNonExistent,
         WindowInvisible,
@@ -25,6 +26,7 @@ pub const Window = struct {
         NullProcess,
     };
 
+    // TODO: redo errors lmao
     pub fn init(handle: win.HWND) InvalidWindowError!*Window {
         if (findByHandle(handle)) |_| return error.WindowAlreadyAdded;
 
@@ -32,33 +34,30 @@ pub const Window = struct {
 
         if (!win32.window.visible(handle)) return error.WindowInvisible;
 
-        const style = win32.window.longPtr(handle, .Style);
+        const style = win32.window.longPtr(handle, .Style) catch unreachable;
         if (style.child) return error.WindowIsChild;
 
         if (handle != win32.window.ancestor(handle, .RootOwner).?) return error.WindowIsNotRoot;
 
-        if (win32.window.Attribute.get(handle, .Cloaked) != win.FALSE) return error.WindowCloaked;
+        if (win32.window.Attribute.get(handle, .Cloaked) catch unreachable != win.FALSE) return error.WindowCloaked;
 
-        const exstyle = win32.window.longPtr(handle, .ExStyle);
+        const exstyle = win32.window.longPtr(handle, .ExStyle) catch unreachable;
         if (exstyle.no_activate or exstyle.tool_window) return error.WindowUnControlable;
 
         const rect = allocator.create(win.RECT) catch unreachable;
         errdefer allocator.destroy(rect);
-        rect.* = win32.window.rect.get(handle, true);
+        rect.* = win32.window.rect.get(handle, true) catch unreachable;
 
-        const rect_nc = win32.window.rect.get(handle, false);
-        // zig fmt: off
-        if (
-            rect_nc.bottom == monitor.bottom
-            and rect_nc.right == monitor.right
-            and rect_nc.top == (monitor.bottom - rect.bottom)
-        ) return error.WindowIsTaskbar;
-        // zig fmt: on
+        const rect_nc = win32.window.rect.get(handle, false) catch unreachable;
+        if (rect_nc.bottom == monitor.bottom and
+            rect_nc.right == monitor.right and
+            rect_nc.top == (monitor.bottom - rect.bottom)) return error.WindowIsTaskbar;
 
-        const name = processName(handle) catch unreachable;
-        errdefer allocator.free(name);
-
-        for (system_apps.items) |sysapp| if (std.mem.eql(u8, sysapp, name)) return error.IsSystemApp;
+        const name = if (processName(handle, allocator)) |name| blk: {
+            errdefer allocator.free(name);
+            for (system_apps.items) |sysapp| if (std.mem.eql(u8, sysapp, name)) return error.IsSystemApp;
+            break :blk name;
+        } else |_| "UnknownProcess";
 
         const ptr = allocator.create(Window) catch unreachable;
         ptr.* = .{
@@ -76,16 +75,16 @@ pub const Window = struct {
         self.* = undefined;
     }
 
-    fn processName(handle: win.HWND) ![]const u8 {
-        const process = win32.process.open(win32.window.processId(handle), .ProcessQueryLimitedInformation).?;
+    fn processName(handle: win.HWND, alloc: std.mem.Allocator) ![]const u8 {
+        const process = try win32.process.open(try win32.window.processId(handle), .ProcessQueryLimitedInformation);
         defer win.CloseHandle(process);
 
         var buf16: [win.PATH_MAX_WIDE:0]u16 = undefined;
-        const path16 = buf16[0..win32.process.path(process, &buf16)];
+        const path16 = buf16[0..try win32.process.path(process, &buf16)];
 
         var buf8: [std.fs.MAX_PATH_BYTES:0]u8 = undefined;
-        const path8 = buf8[0..try std.unicode.utf16leToUtf8(&buf8, path16)];
-        return try allocator.dupe(u8, std.fs.path.basename(path8));
+        const path8 = buf8[0 .. std.unicode.utf16leToUtf8(&buf8, path16) catch unreachable];
+        return try alloc.dupe(u8, std.fs.path.basename(path8));
     }
 
     pub fn minimized(self: *const Window) bool {
@@ -97,20 +96,26 @@ pub var desktop: win.RECT = undefined;
 pub var monitor: win.RECT = undefined;
 pub fn init() !void {
     try initSystemApps();
-    const info = win32.window.monitorInfo(win32.window.monitor(win32.window.desktop(), .Null).?);
+    const info = try win32.window.monitorInfo(win32.window.monitor(win32.window.desktop(), .Null).?);
     desktop = info.rcWork;
     monitor = info.rcMonitor;
-    std.debug.assert(win32.window.enumerate(enumerator));
+    try win32.window.enumerate(enumerator);
     std.debug.print("[-] Monitor: {any}\n", .{monitor});
     std.debug.print("[0] Desktop: {any}\n", .{desktop});
     for (list.items, 1..) |w, i| std.debug.print("[{d}] {s}: {any}\n", .{ i, w.name, w.rect.* });
-    if (win32.window.foreground()) |w| events.process(.Foreground, w);
+    events.process(.Foreground, win32.window.foreground() orelse return);
 }
 
 pub fn deinit() void {
     for (list.items) |w| {
-        win32.window.Attribute.set(w.handle, .{ .BorderColor = .Default });
-        win32.window.Attribute.set(w.handle, .{ .CornerPreference = .Default });
+        win32.window.Attribute.set(w.handle, .{ .BorderColor = .Default }) catch |err| std.log.warn(
+            "Failed to reset border color for window. Name: {s}, Error code: {s}",
+            .{ w.name, @errorName(err) },
+        );
+        win32.window.Attribute.set(w.handle, .{ .CornerPreference = .Default }) catch |err| std.log.warn(
+            "Failed to reset corner preference for window. Name: {s}, Error code: {s}",
+            .{ w.name, @errorName(err) },
+        );
     }
 }
 

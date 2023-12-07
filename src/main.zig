@@ -7,19 +7,22 @@ const events = @import("events.zig");
 var thread: u32 = undefined;
 pub fn main() !void {
     thread = win.kernel32.GetCurrentThreadId();
-    win32.assertHResult(win32.init(.{}), "CoInitializeEx()", .{});
+    if (!try win32.init(.{})) std.log.debug("COM was already initialized for this thread.", .{});
+    defer win32.deinit();
+
     try win.SetConsoleCtrlHandler(ctrlHandler, true);
+
     try windows.init();
-    events.init();
+    defer windows.deinit();
+
+    try events.init();
+    defer events.deinit();
 
     var msg: win32.message.MSG = undefined;
-    while (win32.message.get(&msg)) {
-        std.debug.assert(win32.message.translate(&msg));
+    while (try win32.message.get(&msg)) {
+        try win32.message.translate(&msg);
         win32.message.dispatch(&msg);
     }
-    windows.deinit();
-    events.deinit();
-    win32.deinit();
     std.debug.print("\nEEEE\n", .{});
 }
 
@@ -28,10 +31,10 @@ pub fn exit(code: u8) void {
         \\Exited with error code: {d}\n
         \\Last error type: {s}
     , .{ code, @tagName(win.kernel32.GetLastError()) });
-    std.debug.assert(win32.message.post(thread, .Quit));
+    win32.message.post(thread, .Quit) catch std.os.exit(code);
 }
 
-pub fn ctrlHandler(fdwCtrlType: u32) callconv(win.WINAPI) win.BOOL {
+fn ctrlHandler(fdwCtrlType: u32) callconv(win.WINAPI) win.BOOL {
     if (fdwCtrlType == win.CTRL_C_EVENT) exit(0);
     return win.TRUE;
 }
