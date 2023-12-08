@@ -92,14 +92,39 @@ pub fn deinit() void {
 
 pub const process = struct {
     /// Only includes the subset useful for this application
-    const AccessRights = enum(DWORD) { ProcessQueryLimitedInformation = 0x1000 };
-    extern "kernel32" fn OpenProcess(dwDesiredAccess: AccessRights, bInheritHandle: bool, dwProcessId: DWORD) callconv(WINAPI) ?HANDLE;
-    pub fn open(id: u32, rights: AccessRights) !HANDLE {
+    const ProcessAccessRights = enum(DWORD) { ProcessQueryLimitedInformation = 0x1000 };
+    extern "kernel32" fn OpenProcess(dwDesiredAccess: ProcessAccessRights, bInheritHandle: bool, dwProcessId: DWORD) callconv(WINAPI) ?HANDLE;
+    /// Caller must close the handle
+    pub fn open(id: u32, rights: ProcessAccessRights) !HANDLE {
         return OpenProcess(rights, false, id) orelse unexpectedError(GetLastError());
     }
     pub fn path(handle: HANDLE, buf: [:0]u16) !u32 {
         const len = win.kernel32.K32GetProcessImageFileNameW(handle, buf.ptr, @truncate(buf.len));
         return if (len != 0) len else unexpectedError(GetLastError());
+    }
+    /// Only includes the subset useful for this application
+    const TokenAccessRights = enum(DWORD) { Query = 0x0008 };
+    extern "advapi32" fn OpenProcessToken(ProcessHandle: HANDLE, DesiredAccess: TokenAccessRights, TokenHandle: *HANDLE) callconv(WINAPI) bool;
+    /// Caller must close the handle
+    pub fn token(handle: HANDLE, access: TokenAccessRights) !HANDLE {
+        var val: HANDLE = undefined;
+        return if (OpenProcessToken(handle, access, &val)) val else unexpectedError(GetLastError());
+    }
+    /// Psuedo-handle. Does not need to be closed
+    pub fn currentProcessToken() HANDLE {
+        return @ptrFromInt(@as(usize, @truncate(-4)));
+    }
+    /// Only includes the subset useful for this application
+    const TokenInformationClass = union(enum(DWORD)) {
+        Elevation: extern struct { TokenIsElevated: DWORD } = 20,
+    };
+    extern "advapi32" fn GetTokenInformation(TokenHandle: HANDLE, TokenInformationClass: meta.Tag(TokenInformationClass), TokenInformation: win.LPVOID, TokenInformationLength: DWORD, ReturnLength: *DWORD) bool;
+    pub fn tokenInfo(handle: HANDLE, comptime info: meta.Tag(TokenInformationClass)) !meta.TagPayload(TokenInformationClass, info) {
+        var val: meta.TagPayload(TokenInformationClass, info) = undefined;
+        var len: DWORD = undefined;
+        if (!GetTokenInformation(handle, info, &val, @sizeOf(@TypeOf(val)), &len)) return unexpectedError(GetLastError());
+        if (len != @sizeOf(@TypeOf(val))) return error.ReturnSizeDoesNotMatch;
+        return val;
     }
 };
 
@@ -241,6 +266,7 @@ pub const window = struct {
             return switch (attribute) {
                 inline else => |val| switch (HRESULT_CODE(DwmSetWindowAttribute(handle, attribute, &val, @sizeOf(@TypeOf(val))))) {
                     .SUCCESS => {},
+                    .INVALID_HANDLE => error.InvalidHandle,
                     else => |err| unexpectedError(err),
                 }
             };
@@ -250,6 +276,7 @@ pub const window = struct {
             var val: meta.TagPayload(Attribute, attribute) = undefined;
             return switch (HRESULT_CODE(DwmGetWindowAttribute(handle, attribute, &val, @sizeOf(@TypeOf(val))))) {
                 .SUCCESS => val,
+                .INVALID_HANDLE => error.InvalidHandle,
                 else => |err| unexpectedError(err),
             };
         }
@@ -274,7 +301,10 @@ pub const window = struct {
         };
         extern "user32" fn SetWindowPos(hwnd: HWND, hWndInsertAfter: ?HWND, X: i32, Y: i32, cx: i32, cy: i32, uFlags: SetWindowPosFlags) callconv(WINAPI) bool;
         pub fn set(handle: HWND, pos: RECT, flags: SetWindowPosFlags) !void {
-            if (!SetWindowPos(handle, null, pos.left, pos.top, pos.right, pos.bottom, flags)) return unexpectedError(GetLastError());
+            if (!SetWindowPos(handle, null, pos.left, pos.top, pos.right, pos.bottom, flags)) return switch (GetLastError()) {
+                .ACCESS_DENIED => error.AccessDenied,
+                else => |err| unexpectedError(err),
+            };
         }
         extern "user32" fn GetClientRect(hwnd: HWND, lpRect: *RECT) callconv(WINAPI) bool;
         extern "user32" fn GetWindowRect(hwnd: HWND, lpRect: *RECT) callconv(WINAPI) bool;

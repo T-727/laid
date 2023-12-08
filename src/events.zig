@@ -18,11 +18,10 @@ fn hook(_: win32.HWINEVENTHOOK, event: win32.WinEvent, handle: ?win.HWND, object
 }
 
 pub fn deinit() void {
-    inline for (handles, 0..) |handle, i| win32.WinEvent.deinit(handle) catch |err| {
-        std.log.warn("Failed to Unhook event handler for WinEvent range: {{ .{s}, .{s} }}. Error code: {s}", .{
-            @tagName(ranges[i][0]), @tagName(ranges[i][1]), @errorName(err),
-        });
-    };
+    inline for (handles, 0..) |handle, i| win32.WinEvent.deinit(handle) catch |err| std.log.warn(
+        "Failed to Unhook event handler for WinEvent range: {{ .{s}, .{s} }}. Error code: {s}",
+        .{ @tagName(ranges[i][0]), @tagName(ranges[i][1]), @errorName(err) },
+    );
 }
 
 // temp

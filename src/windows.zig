@@ -23,6 +23,7 @@ pub const Window = struct {
         WindowIsTaskbar,
         WindowIsChild,
         IsSystemApp,
+        ProcessIsElevated,
         NullProcess,
     };
 
@@ -44,6 +45,15 @@ pub const Window = struct {
         const exstyle = win32.window.longPtr(handle, .ExStyle) catch unreachable;
         if (exstyle.no_activate or exstyle.tool_window) return error.WindowUnControlable;
 
+        const process = win32.process.open(win32.window.processId(handle) catch unreachable, .ProcessQueryLimitedInformation) catch unreachable;
+        defer win.CloseHandle(process);
+
+        const token = win32.process.token(process, .Query) catch unreachable;
+        defer win.CloseHandle(token);
+
+        if ((win32.process.tokenInfo(token, .Elevation) catch unreachable).TokenIsElevated != 0 and
+            (win32.process.tokenInfo(win32.process.currentProcessToken(), .Elevation) catch unreachable).TokenIsElevated == 0) return error.ProcessIsElevated;
+
         const rect = allocator.create(win.RECT) catch unreachable;
         errdefer allocator.destroy(rect);
         rect.* = win32.window.rect.get(handle, true) catch unreachable;
@@ -53,7 +63,7 @@ pub const Window = struct {
             rect_nc.right == monitor.right and
             rect_nc.top == (monitor.bottom - rect.bottom)) return error.WindowIsTaskbar;
 
-        const name = if (processName(handle, allocator)) |name| blk: {
+        const name = if (processName(process, allocator)) |name| blk: {
             errdefer allocator.free(name);
             for (system_apps.items) |sysapp| if (std.mem.eql(u8, sysapp, name)) return error.IsSystemApp;
             break :blk name;
@@ -74,10 +84,7 @@ pub const Window = struct {
         allocator.destroy(self);
     }
 
-    fn processName(handle: win.HWND, alloc: std.mem.Allocator) ![]const u8 {
-        const process = try win32.process.open(try win32.window.processId(handle), .ProcessQueryLimitedInformation);
-        defer win.CloseHandle(process);
-
+    fn processName(process: win.HANDLE, alloc: std.mem.Allocator) ![]const u8 {
         var buf16: [win.PATH_MAX_WIDE:0]u16 = undefined;
         const path16 = buf16[0..try win32.process.path(process, &buf16)];
 
