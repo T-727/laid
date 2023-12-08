@@ -33,15 +33,15 @@ var foreground_window: ?*windows.Window = null;
 pub fn process(event: win32.WinEvent, handle: win.HWND) void {
     switch (event) {
         .Foreground => {
-            if (foreground_window) |last| if (windows.findByHandle(last.handle)) |_| {
-                win32.window.Attribute.set(last.handle, .{ .BorderColor = .Default }) catch |err| std.log.warn(
+            if (foreground_window) |last| if (std.mem.indexOfScalar(*windows.Window, windows.list.items, last)) |_| {
+                last.attribute(.{ .BorderColor = .Default }) catch |err| std.log.warn(
                     "Failed to reset foreground border color for previous window. Name: {s}, Error code: {s}",
                     .{ last.name, @errorName(err) },
                 );
             };
             foreground_window = windows.findByHandle(handle);
             if (foreground_window) |current| {
-                win32.window.Attribute.set(current.handle, .{ .BorderColor = color }) catch |err| std.log.warn(
+                current.attribute(.{ .BorderColor = color }) catch |err| std.log.warn(
                     "Failed to set foreground border color for current window. Name: {s}, Error code: {s}",
                     .{ current.name, @errorName(err) },
                 );
@@ -50,7 +50,7 @@ pub fn process(event: win32.WinEvent, handle: win.HWND) void {
 
         .Show, .UnCloak => if (windows.Window.init(handle)) |new| {
             windows.list.append(new) catch unreachable;
-            win32.window.Attribute.set(new.handle, .{ .CornerPreference = .Round }) catch |err| std.log.warn(
+            new.attribute(.{ .CornerPreference = .Round }) catch |err| std.log.warn(
                 "Failed to set corner preference for new window. Name: {s}, Error code: {s}",
                 .{ new.name, @errorName(err) },
             );
@@ -78,7 +78,7 @@ pub fn process(event: win32.WinEvent, handle: win.HWND) void {
 
     var i: i32 = 0;
     for (windows.list.items) |w| if (!w.minimized()) {
-        win32.window.rect.set(w.handle, .{
+        w.position(.{
             .left = ratio * i + i,
             .top = windows.desktop.top,
             .right = ratio,

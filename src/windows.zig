@@ -89,6 +89,12 @@ pub const Window = struct {
     pub fn minimized(self: *const Window) bool {
         return win32.window.minimized(self.handle);
     }
+    pub fn attribute(self: *const Window, attr: win32.window.Attribute) !void {
+        return win32.window.Attribute.set(self.handle, attr);
+    }
+    pub fn position(self: *Window, rect: win.RECT, flags: win32.window.rect.SetWindowPosFlags) !void {
+        return win32.window.rect.set(self.handle, rect, flags);
+    }
 };
 
 pub var desktop: win.RECT = undefined;
@@ -107,11 +113,11 @@ pub fn init() !void {
 
 pub fn deinit() void {
     for (list.items) |w| {
-        win32.window.Attribute.set(w.handle, .{ .BorderColor = .Default }) catch |err| std.log.warn(
+        w.attribute(.{ .BorderColor = .Default }) catch |err| std.log.warn(
             "Failed to reset border color for window. Name: {s}, Error code: {s}",
             .{ w.name, @errorName(err) },
         );
-        win32.window.Attribute.set(w.handle, .{ .CornerPreference = .Default }) catch |err| std.log.warn(
+        w.attribute(.{ .CornerPreference = .Default }) catch |err| std.log.warn(
             "Failed to reset corner preference for window. Name: {s}, Error code: {s}",
             .{ w.name, @errorName(err) },
         );

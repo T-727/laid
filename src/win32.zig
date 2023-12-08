@@ -255,7 +255,7 @@ pub const window = struct {
         }
     };
     pub const rect = struct {
-        const SetWindowPosFlags = packed struct(DWORD) {
+        pub const SetWindowPosFlags = packed struct(DWORD) {
             no_size: bool = false,
             no_move: bool = false,
             no_zorder: bool = false,
